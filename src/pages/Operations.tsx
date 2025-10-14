@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -15,19 +15,103 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 
+interface TireModel {
+  id: string;
+  name: string;
+}
+
+interface Container {
+  id: string;
+  name: string;
+}
+
 const Operations = () => {
   const { toast } = useToast();
   const [barcode, setBarcode] = useState("");
   const [selectedModel, setSelectedModel] = useState("");
   const [selectedContainer, setSelectedContainer] = useState("");
+  const [tireModels, setTireModels] = useState<TireModel[]>([]);
+  const [containers, setContainers] = useState<Container[]>([]);
+
+  useEffect(() => {
+    fetchTireModels();
+    fetchContainers();
+  }, []);
+
+  const fetchTireModels = async () => {
+    const { data } = await supabase.from("tire_models").select("id, name").order("name");
+    setTireModels(data || []);
+  };
+
+  const fetchContainers = async () => {
+    const { data } = await supabase.from("containers").select("id, name").order("name");
+    setContainers(data || []);
+  };
 
   const handleIngestSingle = async (e: React.FormEvent) => {
     e.preventDefault();
-    
-    toast({
-      title: "Funcionalidade em desenvolvimento",
-      description: "A entrada individual de pneus será implementada em breve.",
-    });
+
+    try {
+      // Verificar se o código já existe
+      const { data: existingTire } = await supabase
+        .from("tires")
+        .select("id")
+        .eq("barcode", barcode)
+        .maybeSingle();
+
+      if (existingTire) {
+        toast({
+          variant: "destructive",
+          title: "Código já existe",
+          description: "Este código de barras já está cadastrado no sistema.",
+        });
+        return;
+      }
+
+      // Criar o pneu
+      const { data: newTire, error } = await supabase
+        .from("tires")
+        .insert([
+          {
+            barcode,
+            model_id: selectedModel,
+            current_location_type: "container",
+            current_location_id: selectedContainer,
+            status: "estoque",
+          },
+        ])
+        .select()
+        .single();
+
+      if (error) throw error;
+
+      // Registrar no histórico
+      await supabase.from("tire_history").insert([
+        {
+          tire_id: newTire.id,
+          event_type: "created",
+          to_status: "estoque",
+          to_location_type: "container",
+          to_location_id: selectedContainer,
+          performed_by: (await supabase.auth.getUser()).data.user?.id,
+        },
+      ]);
+
+      toast({
+        title: "Pneu registrado com sucesso!",
+        description: `Código: ${barcode}`,
+      });
+
+      setBarcode("");
+      setSelectedModel("");
+      setSelectedContainer("");
+    } catch (error: any) {
+      toast({
+        variant: "destructive",
+        title: "Erro ao registrar pneu",
+        description: error.message,
+      });
+    }
   };
 
   return (
@@ -82,7 +166,11 @@ const Operations = () => {
                       <SelectValue placeholder="Selecione o modelo" />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="placeholder">Em desenvolvimento</SelectItem>
+                      {tireModels.map((model) => (
+                        <SelectItem key={model.id} value={model.id}>
+                          {model.name}
+                        </SelectItem>
+                      ))}
                     </SelectContent>
                   </Select>
                 </div>
@@ -93,7 +181,11 @@ const Operations = () => {
                       <SelectValue placeholder="Selecione o contêiner" />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="placeholder">Em desenvolvimento</SelectItem>
+                      {containers.map((container) => (
+                        <SelectItem key={container.id} value={container.id}>
+                          {container.name}
+                        </SelectItem>
+                      ))}
                     </SelectContent>
                   </Select>
                 </div>

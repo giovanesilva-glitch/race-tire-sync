@@ -12,7 +12,8 @@ import {
   Calendar,
   LogOut,
   Menu,
-  X
+  X,
+  Link as LinkIcon
 } from "lucide-react";
 import { User } from "@supabase/supabase-js";
 
@@ -71,6 +72,7 @@ const Layout = ({ children }: LayoutProps) => {
     { path: "/drivers", icon: Users, label: "Pilotos" },
     { path: "/cars", icon: Car, label: "Carros" },
     { path: "/seasons", icon: Calendar, label: "Temporadas" },
+    { path: "/associations", icon: LinkIcon, label: "Associações" },
   ];
 
   const isActive = (path: string) => location.pathname === path;

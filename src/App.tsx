@@ -12,6 +12,7 @@ import Seasons from "./pages/Seasons";
 import Drivers from "./pages/Drivers";
 import Cars from "./pages/Cars";
 import Operations from "./pages/Operations";
+import Associations from "./pages/Associations";
 import NotFound from "./pages/NotFound";
 import Layout from "./components/Layout";
 import ProtectedRoute from "./components/ProtectedRoute";
@@ -102,6 +103,16 @@ const App = () => (
               <ProtectedRoute>
                 <Layout>
                   <Operations />
+                </Layout>
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/associations"
+            element={
+              <ProtectedRoute>
+                <Layout>
+                  <Associations />
                 </Layout>
               </ProtectedRoute>
             }
