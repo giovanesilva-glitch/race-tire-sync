@@ -8,6 +8,10 @@ import Dashboard from "./pages/Dashboard";
 import TireModels from "./pages/TireModels";
 import Containers from "./pages/Containers";
 import Tires from "./pages/Tires";
+import Seasons from "./pages/Seasons";
+import Drivers from "./pages/Drivers";
+import Cars from "./pages/Cars";
+import Operations from "./pages/Operations";
 import NotFound from "./pages/NotFound";
 import Layout from "./components/Layout";
 import ProtectedRoute from "./components/ProtectedRoute";
@@ -58,6 +62,46 @@ const App = () => (
               <ProtectedRoute>
                 <Layout>
                   <Tires />
+                </Layout>
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/seasons"
+            element={
+              <ProtectedRoute>
+                <Layout>
+                  <Seasons />
+                </Layout>
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/drivers"
+            element={
+              <ProtectedRoute>
+                <Layout>
+                  <Drivers />
+                </Layout>
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/cars"
+            element={
+              <ProtectedRoute>
+                <Layout>
+                  <Cars />
+                </Layout>
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/operations"
+            element={
+              <ProtectedRoute>
+                <Layout>
+                  <Operations />
                 </Layout>
               </ProtectedRoute>
             }
