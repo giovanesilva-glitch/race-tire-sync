@@ -40,6 +40,7 @@ export type Database = {
           capacity: number
           created_at: string | null
           id: string
+          is_dsi: boolean
           name: string
           updated_at: string | null
         }
@@ -47,6 +48,7 @@ export type Database = {
           capacity: number
           created_at?: string | null
           id?: string
+          is_dsi?: boolean
           name: string
           updated_at?: string | null
         }
@@ -54,6 +56,7 @@ export type Database = {
           capacity?: number
           created_at?: string | null
           id?: string
+          is_dsi?: boolean
           name?: string
           updated_at?: string | null
         }
@@ -377,7 +380,7 @@ export type Database = {
         | "status_changed"
         | "assigned_to_driver"
         | "returned"
-      tire_status: "estoque" | "piloto" | "cup" | "dsi"
+      tire_status: "estoque" | "piloto" | "cup" | "dsi" | "descartado"
     }
     CompositeTypes: {
       [_ in never]: never
@@ -515,7 +518,7 @@ export const Constants = {
         "assigned_to_driver",
         "returned",
       ],
-      tire_status: ["estoque", "piloto", "cup", "dsi"],
+      tire_status: ["estoque", "piloto", "cup", "dsi", "descartado"],
     },
   },
 } as const
