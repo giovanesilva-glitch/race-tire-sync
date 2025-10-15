@@ -359,7 +359,17 @@ export type Database = {
       }
     }
     Views: {
-      [_ in never]: never
+      tires_counts: {
+        Row: {
+          cup: number | null
+          descartado: number | null
+          dsi: number | null
+          estoque: number | null
+          piloto: number | null
+          total: number | null
+        }
+        Relationships: []
+      }
     }
     Functions: {
       has_role: {
@@ -368,6 +378,10 @@ export type Database = {
           _user_id: string
         }
         Returns: boolean
+      }
+      scan_into_container: {
+        Args: { p_barcode: string; p_container_id: string; p_user: string }
+        Returns: Json
       }
     }
     Enums: {
