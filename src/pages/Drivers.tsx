@@ -5,7 +5,8 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { useToast } from "@/hooks/use-toast";
-import { Loader2, Plus, Edit2, Trash2 } from "lucide-react";
+import { Loader2, Plus, Edit2, Trash2, Upload } from "lucide-react";
+import * as XLSX from "xlsx";
 import {
   Table,
   TableBody,
@@ -36,6 +37,7 @@ const Drivers = () => {
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingDriver, setEditingDriver] = useState<Driver | null>(null);
   const [formData, setFormData] = useState({ full_name: "", nickname: "" });
+  const [importFile, setImportFile] = useState<File | null>(null);
 
   useEffect(() => {
     fetchDrivers();
@@ -117,6 +119,101 @@ const Drivers = () => {
     }
   };
 
+  const handleImportFile = async () => {
+    if (!importFile) {
+      toast({
+        variant: "destructive",
+        title: "Selecione um arquivo",
+        description: "Por favor, selecione uma planilha para importar.",
+      });
+      return;
+    }
+
+    try {
+      const data = await importFile.arrayBuffer();
+      const workbook = XLSX.read(data);
+      const worksheet = workbook.Sheets[workbook.SheetNames[0]];
+      const jsonData = XLSX.utils.sheet_to_json(worksheet, { header: 1 }) as any[][];
+
+      // Encontrar índices das colunas ID e PILOTO
+      const headerRow = jsonData.find(row => 
+        row.some(cell => cell === "ID" || cell === "PILOTO")
+      );
+
+      if (!headerRow) {
+        toast({
+          variant: "destructive",
+          title: "Formato inválido",
+          description: "Planilha não contém as colunas esperadas (ID, PILOTO).",
+        });
+        return;
+      }
+
+      const idIndex = headerRow.indexOf("ID");
+      const pilotoIndex = headerRow.indexOf("PILOTO");
+      const headerRowIndex = jsonData.indexOf(headerRow);
+
+      if (idIndex === -1 || pilotoIndex === -1) {
+        toast({
+          variant: "destructive",
+          title: "Colunas faltando",
+          description: "Planilha precisa ter as colunas ID e PILOTO.",
+        });
+        return;
+      }
+
+      let imported = 0;
+      let updated = 0;
+
+      for (let i = headerRowIndex + 1; i < jsonData.length; i++) {
+        const row = jsonData[i];
+        const id = row[idIndex];
+        const piloto = row[pilotoIndex];
+
+        if (!id || !piloto || piloto === "Reserva") continue;
+
+        // Verificar se o piloto já existe pelo nickname (ID da planilha)
+        const { data: existing } = await supabase
+          .from("drivers")
+          .select("*")
+          .eq("nickname", id.toString())
+          .maybeSingle();
+
+        if (existing) {
+          // Atualizar nome completo se mudou
+          if (existing.full_name !== piloto) {
+            await supabase
+              .from("drivers")
+              .update({ full_name: piloto })
+              .eq("id", existing.id);
+            updated++;
+          }
+        } else {
+          // Inserir novo piloto
+          await supabase.from("drivers").insert([{
+            full_name: piloto,
+            nickname: id.toString(),
+          }]);
+          imported++;
+        }
+      }
+
+      toast({
+        title: "Importação concluída!",
+        description: `${imported} pilotos importados, ${updated} atualizados.`,
+      });
+
+      setImportFile(null);
+      fetchDrivers();
+    } catch (error: any) {
+      toast({
+        variant: "destructive",
+        title: "Erro ao importar",
+        description: error.message,
+      });
+    }
+  };
+
   if (loading) {
     return (
       <div className="flex items-center justify-center min-h-screen">
@@ -173,6 +270,32 @@ const Drivers = () => {
           </DialogContent>
         </Dialog>
       </div>
+
+      <Card className="border-border bg-card/50 backdrop-blur">
+        <CardHeader>
+          <CardTitle>Importação em Lote</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <Label htmlFor="import-file">Planilha de Pilotos Confirmados</Label>
+              <Input
+                id="import-file"
+                type="file"
+                accept=".xlsx,.xls,.csv"
+                onChange={(e) => setImportFile(e.target.files?.[0] || null)}
+              />
+              <p className="text-sm text-muted-foreground">
+                Formato esperado: colunas ID e PILOTO
+              </p>
+            </div>
+            <Button onClick={handleImportFile} className="w-full">
+              <Upload className="mr-2 h-4 w-4" />
+              Processar Planilha
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
 
       <Card className="border-border bg-card/50 backdrop-blur">
         <CardHeader>
