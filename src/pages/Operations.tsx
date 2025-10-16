@@ -8,6 +8,16 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useToast } from "@/hooks/use-toast";
 import { Package, Upload, Download, ClipboardCheck } from "lucide-react";
 import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import * as XLSX from "xlsx";
+import {
   Select,
   SelectContent,
   SelectItem,
@@ -52,6 +62,15 @@ const Operations = () => {
   const [auditContainer, setAuditContainer] = useState("");
   const [scannedBarcodes, setScannedBarcodes] = useState<string[]>([]);
   const [auditBarcode, setAuditBarcode] = useState("");
+  
+  // Alert states
+  const [alertOpen, setAlertOpen] = useState(false);
+  const [alertTitle, setAlertTitle] = useState("");
+  const [alertMessage, setAlertMessage] = useState("");
+  
+  // Import states
+  const [importFile, setImportFile] = useState<File | null>(null);
+  const [discardPolicy, setDiscardPolicy] = useState<"usar" | "nao_usar">("usar");
 
   useEffect(() => {
     fetchTireModels();
@@ -86,11 +105,32 @@ const Operations = () => {
         .maybeSingle();
 
       if (existingTire) {
-        toast({
-          variant: "destructive",
-          title: "Código já existe",
-          description: "Este código de barras já está cadastrado no sistema.",
+        // Se existe, usar RPC para mover para contêiner
+        const user = (await supabase.auth.getUser()).data.user;
+        const { data: result, error: rpcError } = await supabase.rpc("scan_into_container", {
+          p_barcode: barcode,
+          p_container_id: selectedContainer,
+          p_user: user?.id,
         });
+
+        if (rpcError) throw rpcError;
+
+        const resultObj = result as { ok: boolean; code: string; message?: string };
+
+        if (resultObj?.code === "blocked_piloto_in_dsi") {
+          setAlertOpen(true);
+          setAlertTitle("BLOQUEADO");
+          setAlertMessage("Pneu de PILOTO não pode entrar em contêiner DSI.");
+          return;
+        }
+
+        if (resultObj?.code === "ok_dsi") {
+          toast({ title: "Movido para DSI", description: `Pneu ${barcode} enviado para retorno.` });
+        } else if (resultObj?.code === "ok_container") {
+          toast({ title: "Movido para contêiner", description: `Pneu ${barcode} posicionado.` });
+        }
+
+        setBarcode("");
         return;
       }
 
@@ -371,6 +411,136 @@ const Operations = () => {
     setAuditContainer("");
   };
 
+  const handleImportFile = async () => {
+    if (!importFile) {
+      toast({
+        variant: "destructive",
+        title: "Arquivo necessário",
+        description: "Selecione uma planilha para importar.",
+      });
+      return;
+    }
+
+    try {
+      const data = await importFile.arrayBuffer();
+      const workbook = XLSX.read(data, { type: "array" });
+      const sheetName = workbook.SheetNames[0];
+      const worksheet = workbook.Sheets[sheetName];
+      const jsonData = XLSX.utils.sheet_to_json(worksheet, { header: 1 }) as any[][];
+
+      if (jsonData.length < 2) {
+        toast({
+          variant: "destructive",
+          title: "Planilha vazia",
+          description: "A planilha não contém dados.",
+        });
+        return;
+      }
+
+      // Identificar colunas
+      const headers = jsonData[0].map((h: string) => String(h || "").toLowerCase());
+      const rows = jsonData.slice(1);
+
+      const user = (await supabase.auth.getUser()).data.user;
+      let processed = 0;
+      let errors = 0;
+
+      for (const row of rows) {
+        try {
+          const rowData: any = {};
+          headers.forEach((h: string, i: number) => {
+            rowData[h] = row[i];
+          });
+
+          const code = String(rowData.codigo || rowData.barcode || "").trim();
+          if (!code) continue;
+
+          const cond = String(rowData.condicao || rowData.condition || "").toLowerCase();
+          
+          let toStatus: "estoque" | "piloto" | "cup" | "descartado" | "dsi" = "estoque";
+          let toLocType: "container" | "piloto" | "none" = "container";
+          let toLocId: string | null = selectedContainer;
+
+          if (cond.includes("guard")) {
+            toStatus = "piloto";
+            toLocType = "piloto";
+            // Precisaria do driver_id aqui
+          } else if (cond.includes("descart")) {
+            if (discardPolicy === "usar") {
+              toStatus = "cup";
+              toLocType = "container";
+              toLocId = selectedContainer;
+            } else {
+              toStatus = "descartado";
+              toLocType = "none";
+              toLocId = null;
+            }
+          }
+
+          // Buscar ou criar pneu
+          const { data: tire } = await supabase
+            .from("tires")
+            .select("id")
+            .eq("barcode", code)
+            .maybeSingle();
+
+          if (tire) {
+            await supabase
+              .from("tires")
+              .update({
+                status: toStatus,
+                current_location_type: toLocType,
+                current_location_id: toLocId,
+              })
+              .eq("id", tire.id);
+          } else {
+            const { data: newTire } = await supabase
+              .from("tires")
+              .insert([{
+                barcode: code,
+                model_id: selectedModel,
+                status: toStatus,
+                current_location_type: toLocType,
+                current_location_id: toLocId,
+              }])
+              .select()
+              .single();
+
+            if (newTire) {
+              await supabase.from("tire_history").insert([{
+                tire_id: newTire.id,
+                event_type: "created",
+                to_status: toStatus,
+                to_location_type: toLocType,
+                to_location_id: toLocId,
+                performed_by: user?.id,
+                metadata: rowData,
+              }]);
+            }
+          }
+
+          processed++;
+        } catch (err) {
+          errors++;
+          console.error("Error processing row:", err);
+        }
+      }
+
+      toast({
+        title: "Importação concluída",
+        description: `${processed} pneus processados, ${errors} erros.`,
+      });
+
+      setImportFile(null);
+    } catch (error: any) {
+      toast({
+        variant: "destructive",
+        title: "Erro na importação",
+        description: error.message,
+      });
+    }
+  };
+
   return (
     <div className="container mx-auto p-6 space-y-6">
       <div>
@@ -461,14 +631,72 @@ const Operations = () => {
               <p className="text-sm text-muted-foreground">
                 Faça upload de uma planilha com múltiplos pneus para registro rápido.
               </p>
-              <Button variant="outline" className="w-full">
-                <Download className="mr-2 h-4 w-4" />
-                Baixar Modelo de Planilha
-              </Button>
-              <Input type="file" accept=".xlsx,.csv" />
-              <Button className="w-full">
+              
+              <div className="space-y-2">
+                <Label>Modelo do Pneu (para novos) *</Label>
+                <select 
+                  className="w-full rounded-md border border-input bg-background px-3 py-2"
+                  value={selectedModel}
+                  onChange={(e) => setSelectedModel(e.target.value)}
+                >
+                  <option value="">Selecione o modelo</option>
+                  {tireModels.map((model) => (
+                    <option key={model.id} value={model.id}>
+                      {model.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="space-y-2">
+                <Label>Contêiner de Destino *</Label>
+                <select 
+                  className="w-full rounded-md border border-input bg-background px-3 py-2"
+                  value={selectedContainer}
+                  onChange={(e) => setSelectedContainer(e.target.value)}
+                >
+                  <option value="">Selecione o contêiner</option>
+                  {containers.map((container) => (
+                    <option key={container.id} value={container.id}>
+                      {container.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="rounded-xl border p-3 space-y-2">
+                <div className="font-medium">Quando a planilha indicar DESCARTADO</div>
+                <div className="flex gap-2">
+                  <Button 
+                    type="button"
+                    variant={discardPolicy === 'usar' ? 'default' : 'outline'} 
+                    onClick={() => setDiscardPolicy('usar')}
+                  >
+                    Vamos usar (CUP)
+                  </Button>
+                  <Button 
+                    type="button"
+                    variant={discardPolicy === 'nao_usar' ? 'default' : 'outline'} 
+                    onClick={() => setDiscardPolicy('nao_usar')}
+                  >
+                    Não usar (DESCARTADO)
+                  </Button>
+                </div>
+              </div>
+
+              <Input 
+                type="file" 
+                accept=".xlsx,.xls,.csv"
+                onChange={(e) => setImportFile(e.target.files?.[0] || null)}
+              />
+              
+              <Button 
+                className="w-full" 
+                onClick={handleImportFile}
+                disabled={!importFile || !selectedModel || !selectedContainer}
+              >
                 <Upload className="mr-2 h-4 w-4" />
-                Importar Planilha
+                Processar Planilha
               </Button>
             </CardContent>
           </Card>
@@ -635,6 +863,20 @@ const Operations = () => {
           </Card>
         </TabsContent>
       </Tabs>
+
+      <AlertDialog open={alertOpen} onOpenChange={setAlertOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle className="text-destructive">{alertTitle}</AlertDialogTitle>
+            <AlertDialogDescription className="text-lg">
+              {alertMessage}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogAction>Entendi</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 };

@@ -17,6 +17,8 @@ const Dashboard = () => {
     totalTires: 0,
     inStock: 0,
     inUse: 0,
+    cup: 0,
+    descartado: 0,
     dsi: 0,
   });
   const [containers, setContainers] = useState<ContainerWithOccupancy[]>([]);
@@ -28,18 +30,21 @@ const Dashboard = () => {
 
   const fetchDashboardData = async () => {
     try {
-      // Fetch tire counts by status
-      const { data: tires, error: tiresError } = await supabase
-        .from("tires")
-        .select("status");
+      // Fetch tire counts from view
+      const { data: countsData, error: countsError } = await supabase
+        .from("tires_counts")
+        .select("*")
+        .maybeSingle();
 
-      if (tiresError) throw tiresError;
+      if (countsError) throw countsError;
 
       const counts = {
-        totalTires: tires?.length || 0,
-        inStock: tires?.filter(t => t.status === "estoque").length || 0,
-        inUse: tires?.filter(t => t.status === "piloto").length || 0,
-        dsi: tires?.filter(t => t.status === "dsi").length || 0,
+        totalTires: countsData?.total || 0,
+        inStock: countsData?.estoque || 0,
+        inUse: countsData?.piloto || 0,
+        cup: countsData?.cup || 0,
+        descartado: countsData?.descartado || 0,
+        dsi: countsData?.dsi || 0,
       };
       setStats(counts);
 
@@ -97,10 +102,22 @@ const Dashboard = () => {
       title: "Em Uso (Pilotos)",
       value: stats.inUse,
       icon: Users,
+      color: "text-primary",
+    },
+    {
+      title: "Cup (Reutilizáveis)",
+      value: stats.cup,
+      icon: Package,
+      color: "text-info",
+    },
+    {
+      title: "Descartados",
+      value: stats.descartado,
+      icon: AlertCircle,
       color: "text-warning",
     },
     {
-      title: "DSI (Descartados)",
+      title: "DSI",
       value: stats.dsi,
       icon: AlertCircle,
       color: "text-destructive",
@@ -131,7 +148,7 @@ const Dashboard = () => {
       </div>
 
       {/* Stats Cards */}
-      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
         {statCards.map((stat, index) => {
           const Icon = stat.icon;
           return (

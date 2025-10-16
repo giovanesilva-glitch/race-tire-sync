@@ -10,12 +10,14 @@ import { useToast } from "@/hooks/use-toast";
 import { Plus, Pencil, Trash2, Archive } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
+import { Switch } from "@/components/ui/switch";
 
 interface Container {
   id: string;
   name: string;
   capacity: number;
   current_count?: number;
+  is_dsi: boolean;
 }
 
 const Containers = () => {
@@ -124,6 +126,32 @@ const Containers = () => {
     setEditingContainer(null);
   };
 
+  const toggleDSI = async (containerId: string, next: boolean) => {
+    try {
+      const { error } = await supabase
+        .from("containers")
+        .update({ is_dsi: next })
+        .eq("id", containerId);
+
+      if (error) throw error;
+
+      toast({
+        title: next ? "Contêiner marcado como DSI" : "Contêiner removido de DSI",
+        description: next 
+          ? "Este contêiner agora está marcado para descarte internacional." 
+          : "Este contêiner voltou ao modo normal.",
+      });
+
+      fetchContainers();
+    } catch (error: any) {
+      toast({
+        variant: "destructive",
+        title: "Falha ao marcar DSI",
+        description: error.message,
+      });
+    }
+  };
+
   const getOccupancyColor = (percentage: number) => {
     if (percentage >= 90) return "text-destructive";
     if (percentage >= 70) return "text-warning";
@@ -206,6 +234,7 @@ const Containers = () => {
               <TableHeader>
                 <TableRow>
                   <TableHead>Nome</TableHead>
+                  <TableHead>Tipo</TableHead>
                   <TableHead>Capacidade</TableHead>
                   <TableHead>Ocupação</TableHead>
                   <TableHead>Progresso</TableHead>
@@ -223,6 +252,17 @@ const Containers = () => {
                         <div className="flex items-center gap-2">
                           <Archive className="h-4 w-4 text-muted-foreground" />
                           {container.name}
+                        </div>
+                      </TableCell>
+                      <TableCell>
+                        <div className="flex items-center gap-2">
+                          <Switch
+                            checked={container.is_dsi}
+                            onCheckedChange={(checked) => toggleDSI(container.id, checked)}
+                          />
+                          {container.is_dsi && (
+                            <Badge variant="destructive">DSI</Badge>
+                          )}
                         </div>
                       </TableCell>
                       <TableCell>{container.capacity}</TableCell>
